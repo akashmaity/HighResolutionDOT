@@ -1,0 +1,146 @@
+% scene: the vein is in the center of the image, placed in parallel with the rows
+% The projection lines are slit patterns
+
+
+clear all;
+% close all;
+msetup;
+
+%---------Scene description  ----------%
+N = 256;
+Nr = 256;
+Nc = 256;
+Nz = 256;
+
+if_vertical = 0; % for horizontal orientation of veins
+src_slit = 1; % illumination pattern
+diffuse = 1;
+% ---------
+
+Lx = linspace(0, N-1, N); % starting illumination line is at row 50, can start from 0, but will be unsymmetric
+unitinmm = 0.24; % unit in mm of each voxel
+d_vein = 2/unitinmm; % depth of vein --- 2 mm
+r_vein = 1/unitinmm; % radius of vein ---1 mm
+
+z_surf = 1;  % should be integer ! the interface between the air and the skin is at z_surf
+Imgs = zeros( N, N, length(Lx) );
+i = 0;
+for lx = Lx
+    cfg.gpuid= 3 ;
+    cfg.unitinmm = unitinmm;
+    cfg.isnormalized = 1;
+    cfg.vol=uint8(ones(Nr,Nc,Nz));
+    
+    cfg.vol(:,:,:,1:z_surf) = 0;
+    
+%     
+    if(diffuse)
+        z_vein = d_vein+1;
+        cfg.issaveref = 1;
+        str_zlayers = sprintf('{"Shapes":[ {"ZLayers":[[0,1, 0],[2,%d, 1]]},', Nz);
+    end
+%     
+    if if_vertical == 0
+        str_vein1    = sprintf('{"Cylinder": {"Tag":2, "C0": [%f, 0, %d], "C1": [%f, %d, %d], "R": %d}},', ...
+            Nr/2-10/unitinmm, z_vein+6, Nr/2-10/unitinmm, Nc, z_vein+6, r_vein+1 );
+        str_vein2    = sprintf('{"Cylinder": {"Tag":2, "C0": [%f, 0, %d], "C1": [%f, %d, %d], "R": %d}}]}', ...
+            Nr/2, z_vein, Nr/2, Nc, z_vein, r_vein );
+        str_vein3    = sprintf('{"Cylinder": {"Tag":2, "C0": [%f, 0, %d], "C1": [%f, %d, %d], "R": %d}}]}', ...
+            Nr/2+10/unitinmm, z_vein+9, Nr/2+10/unitinmm, Nc, z_vein+9, r_vein+2 );
+    else
+        str_vein    = sprintf('{"Cylinder": {"Tag":2, "C0": [0, %f, %d], "C1": [%d, %f, %d], "R": %d}}]}', ...
+            Nc/2 , z_vein, Nr, Nc/2, z_vein, r_vein );
+        
+    end
+    cfg.shapes=[str_zlayers str_vein2] ;
+    
+    cfg.prop=[0.0000         0.0    1.0000    1
+        0.05 12    0.9000    1.3700 % optical properties of tissue
+        1   12    0.9000    1.3700]; % optical properties of blood
+    
+    i = i+1;
+    if(src_slit==1)
+        cfg.srcpos=[lx 0 0];
+        cfg.srctype='slit';
+        cfg.srcparam1=[0 Nc 0 0];
+    end
+    cfg.nphoton=2e7;
+    cfg.isreflect=1;
+    cfg.issrcfrom0 = 1;
+    cfg.tstart=0;
+    cfg.tend=1e-5;
+    cfg.tstep=1e-5;
+    cfg.srcdir=[0 0 1];
+    cfg.issaveexit = 0;   
+    cfg.autopilot=1;
+    cfg.debuglevel='P';
+    
+    fprintf('%d/%d images \n', i, length( Lx ) );
+    flux = mcxlab(cfg);
+    
+    mcxdiffuse = flux.dref;
+    if(diffuse)
+        dref=mcxdiffuse(:,:,z_surf)*cfg.tstep;
+    end
+    
+    %% getting laser profile
+    %     if strcmp( cfg.srctype, 'slit' )
+    %         cfg.srcdir = [0 0 -1];
+    %         cfg.srcpos = [lx , 0, 10];
+    %         cfg.srcparam1 = [0 N 0 0];
+    %     end
+    %
+    %     cfg.vol(:,:,:) = 3;
+    %     cfg.vol(:,:,1)=0;   % pad a layer of 0s to get diffuse reflectance
+    %     cfg.isreflect=1;
+    %     cfg.issaveref=1;
+    %     [flux_src, detpt, vol, seeds, traj] = mcxlab(cfg);
+    %     dref_src = flux_src.dref(:,:,z_surf+ 1)*cfg.tstep;
+    %
+    %
+    %     % get the accumulated reflectance
+    %     if strcmp( cfg.srctype, 'slit' )
+    %         val_tds = dref;
+    %     end
+    %
+    %     %         if cfg.isnormalized==0
+    %     %             sum_ref = val_tds * cfg.tstep / ( src_flux * cfg.tstep );
+    %     %         else
+    %     %             the incident light source is of unit intensity %
+    %     %             sum_ref = val_tds * cfg.tstep;
+    %     %         end
+    %
+    %     props = cfg.prop;
+    %     vol_slice = squeeze(flux.data(:,int16(N/2),:));
+    %det{i} = det_photon;
+    Imgs(:,:,i) = dref;
+    %     load(sprintf('intensity_dipole_slit_mf_%.1f.mat',cfg.unitinmm));
+    %     plot(log10(dref(20:80,150)));
+    %     hold on
+    %     plot(Id)
+    %     IMGS_DREF_SRC(:,:,i) = dref_src;
+    if strcmp( cfg.srctype, 'slit' )
+        laser_profile = zeros(1,1);
+    end
+    clear flux_src, flux, cfg
+    %fprintf('max flux, min flux: %f, %f\n', max( mcxdata(:) ), min(mcxdata(:)) );
+    %fprintf('max img, min img: %f, %f\n', max( img_tmp(:) ), min(img_tmp(:)) );
+end
+
+fprintf('saving the results... \n')
+
+
+if if_vertical==0
+    fname = sprintf( 'dat/mcx_imgs_N%d_unitmm_%.2f_veins.mat',...
+        N,  unitinmm );
+else % vertical
+    fname = sprintf( 'dat/mcx_imgs_N%d_unitmm_%.2f_V.mat', ...
+        N,  unitinmm );
+end
+prop = cfg.prop;
+d_vein = z_vein;
+nphoton = cfg.nphoton;
+save(fname, 'Imgs','N', 'Lx', 'prop', 'unitinmm', 'z_surf', 'nphoton');
+fprintf('Done \n')
+
+
