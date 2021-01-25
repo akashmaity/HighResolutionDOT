@@ -34,7 +34,7 @@ and then run:
 python script_get_images_td.py
 ```
 
-These images correspond to each source-to-detector pair distances respectively.
+The images generate correspond to multiple source-to-detector pair distances respectively.
 
 # Reconstruction
 
